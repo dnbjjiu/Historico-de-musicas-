@@ -1,0 +1,48 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+enum PlaySource {
+  internal_player
+  external_youtube
+  youtube_history_import
+}
+
+model Genre {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  color     String   @default("#3f7d58")
+  createdAt DateTime @default(now())
+  tracks    Track[]
+}
+
+model Track {
+  id              Int         @id @default(autoincrement())
+  youtubeVideoId  String      @unique
+  title           String
+  channelTitle    String
+  thumbnailUrl    String?
+  durationSeconds Int?
+  genreId         Int?
+  genre           Genre?      @relation(fields: [genreId], references: [id], onDelete: SetNull)
+  plays           PlayEvent[]
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+}
+
+model PlayEvent {
+  id        Int        @id @default(autoincrement())
+  trackId   Int
+  playedAt  DateTime   @default(now())
+  source    PlaySource
+  sourceKey String?    @unique
+  track     Track      @relation(fields: [trackId], references: [id], onDelete: Cascade)
+
+  @@index([playedAt])
+  @@index([trackId])
+}
