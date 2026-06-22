@@ -109,6 +109,21 @@ const periods = [
   { value: "all", label: "Tudo", helper: "histórico completo" }
 ];
 
+const portugueseMonths: Record<string, number> = {
+  jan: 0,
+  fev: 1,
+  mar: 2,
+  abr: 3,
+  mai: 4,
+  jun: 5,
+  jul: 6,
+  ago: 7,
+  set: 8,
+  out: 9,
+  nov: 10,
+  dez: 11
+};
+
 export function MusicDashboard() {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResult[]>([]);
@@ -301,13 +316,13 @@ export function MusicDashboard() {
         touchedTracks: 0
       };
 
-      for (const chunk of chunkEntries(entries, 1000)) {
+      for (const chunk of chunkEntries(entries, 200)) {
         const response = await fetch("/api/import/youtube-history", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ entries: chunk })
         });
-        const data = (await response.json()) as ImportSummary & { error?: string };
+        const data = await readJsonResponse<ImportSummary & { error?: string }>(response);
 
         if (!response.ok) {
           throw new Error(data.error ?? "Não foi possível importar o histórico.");
@@ -872,6 +887,26 @@ function parseTakeoutJson(content: string): ImportEntry[] {
   });
 }
 
+async function readJsonResponse<T>(response: Response): Promise<T> {
+  const text = await response.text();
+
+  if (!text.trim()) {
+    throw new Error(
+      response.ok
+        ? "A API respondeu sem conteúdo."
+        : `A API respondeu sem conteúdo. Status ${response.status}. Verifique os logs da Vercel.`
+    );
+  }
+
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    throw new Error(
+      `A API não retornou JSON válido. Status ${response.status}. Verifique os logs da Vercel.`
+    );
+  }
+}
+
 function parseTakeoutHtml(content: string): ImportEntry[] {
   const parser = new DOMParser();
   const document = parser.parseFromString(content, "text/html");
@@ -919,12 +954,40 @@ function extractDateFromText(value: string): string | null {
     return isoMatch[0];
   }
 
+  const portugueseDate = value.match(
+    /(\d{1,2}) de ([a-zç]{3})\.? de (\d{4}), (\d{2}):(\d{2})(?::(\d{2}))? ACT/i
+  );
+  if (portugueseDate) {
+    const [, day, monthName, year, hour, minute, second = "0"] = portugueseDate;
+    const month = portugueseMonths[normalizeMonth(monthName)];
+
+    if (month !== undefined) {
+      const utcMilliseconds = Date.UTC(
+        Number(year),
+        month,
+        Number(day),
+        Number(hour) + 5,
+        Number(minute),
+        Number(second)
+      );
+
+      return new Date(utcMilliseconds).toISOString();
+    }
+  }
+
   const parsed = new Date(value);
   if (!Number.isNaN(parsed.getTime())) {
     return parsed.toISOString();
   }
 
   return null;
+}
+
+function normalizeMonth(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
 }
 
 function cleanTakeoutTitle(value: string): string {
